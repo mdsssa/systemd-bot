@@ -7,14 +7,18 @@ import time
 
 import telebot
 from telebot import apihelper, types
+from dotenv import load_dotenv
 
+
+
+load_dotenv()
 
 TOKEN = os.environ["BOT_TOKEN"]
-ADMIN_ID = int(os.environ["ADMIN_ID"]) 
+ADMIN_ID = int(os.environ["ADMIN_ID"])
 SERVICES = [s.strip() for s in os.environ.get("SERVICES", "nginx,ssh").split(",") if s.strip()]
-INTERVAL = int(os.environ.get("CHECK_INTERVAL", "15"))  
-USE_SUDO = os.environ.get("USE_SUDO", "0") == "1" 
-PROXY = os.environ.get("PROXY") 
+INTERVAL = int(os.environ.get("CHECK_INTERVAL", "15"))
+USE_SUDO = os.environ.get("USE_SUDO", "0") == "1"
+PROXY = os.environ.get("PROXY")
 
 if PROXY:
     apihelper.proxy = {"http": PROXY, "https": PROXY}
