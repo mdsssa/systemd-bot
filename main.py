@@ -36,7 +36,7 @@ ICONS = {"active": "🟢", "activating": "🟡", "reloading": "🟡", "deactivat
 STATE_RU = {"active": "active", "inactive": "остановлен", "failed": "упал",
             "activating": "запускается", "deactivating": "останавливается",
             "reloading": "перечитывает конфиг"}
-ACTIONS = {"start": "Starting", "stop": "Terminating", "restart": "Restar"}
+ACTIONS = {"start": "Starting", "stop": "Terminating", "restart": "Restarting"}
 
 # ---------- состояние (id сообщений переживает перезапуск бота) ----------
 STATE_FILE = Path(__file__).with_name("state.json")
