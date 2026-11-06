@@ -36,7 +36,7 @@ ICONS = {"active": "🟢", "activating": "🟡", "reloading": "🟡", "deactivat
 STATE_RU = {"active": "active", "inactive": "остановлен", "failed": "упал",
             "activating": "запускается", "deactivating": "останавливается",
             "reloading": "перечитывает конфиг"}
-ACTIONS = {"start": "Запускаю…", "stop": "Останавливаю…", "restart": "Перезапускаю…"}
+ACTIONS = {"start": "Starting", "stop": "Terminating", "restart": "Restar"}
 
 # ---------- состояние (id сообщений переживает перезапуск бота) ----------
 STATE_FILE = Path(__file__).with_name("state.json")
@@ -274,7 +274,7 @@ def on_button(c):
     cmd, _, arg = c.data.partition(":")
     if cmd in ACTIONS and arg.isdigit() and int(arg) < len(SERVICES):
         n = int(arg)
-        bot.answer_callback_query(c.id, cmd)
+        bot.answer_callback_query(c.id, ACTIONS[cmd])
         quiet_until[SERVICES[n]] = time.time() + INTERVAL + 5
         ok, msg = systemctl_action(cmd, SERVICES[n])
         time.sleep(1.5)
