@@ -132,7 +132,7 @@ def render_main():
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(*[btn(f"{ICONS.get(i['state'], '❔')} {s}", f"s:{n}")
              for n, (s, i) in enumerate(zip(SERVICES, infos))])
-    kb.row(btn("🔄 Reload", "main"))
+    kb.row(btn("🔄 Update", "main"))
     return text, kb
 
 
