@@ -1,8 +1,9 @@
-
+import glob
 import html
 import json
 import logging
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -24,6 +25,7 @@ ADMIN_ID = int(os.environ["ADMIN_ID"])
 SERVICES = [s.strip() for s in os.environ.get("SERVICES", "").split(",") if s.strip()]
 INTERVAL = int(os.environ.get("CHECK_INTERVAL", "15"))
 PROXY = os.environ.get("PROXY")
+PANEL_REFRESH = int(os.environ.get("PANEL_REFRESH", "0"))  # сек; 0 = главный экран обновляется только по событиям и кнопке
 
 if PROXY:
     apihelper.proxy = {"http": PROXY, "https": PROXY}
@@ -116,18 +118,115 @@ def btn(text: str, data: str) -> types.InlineKeyboardButton:
     return types.InlineKeyboardButton(text, callback_data=data)
 
 
+# ---------- система (CPU / RAM / GPU / аптайм) ----------
+cpu_pct: float | None = None
+
+
+def read_cpu_times() -> tuple[int, int]:
+    with open("/proc/stat") as f:
+        vals = [int(x) for x in f.readline().split()[1:]]
+    idle = vals[3] + vals[4]  # idle + iowait
+    return sum(vals[:8]), idle
+
+
+def cpu_sampler():
+    """Раз в 2 секунды считает загрузку CPU по /proc/stat."""
+    global cpu_pct
+    prev = read_cpu_times()
+    time.sleep(0.5)
+    while True:
+        cur = read_cpu_times()
+        total, idle = cur[0] - prev[0], cur[1] - prev[1]
+        if total > 0:
+            cpu_pct = 100 * (1 - idle / total)
+        prev = cur
+        time.sleep(2)
+
+
+def read_ram() -> tuple[float, float]:
+    mem = {}
+    with open("/proc/meminfo") as f:
+        for l in f:
+            k, v = l.split(":")
+            mem[k] = int(v.split()[0])  # kB
+    total = mem["MemTotal"]
+    return (total - mem["MemAvailable"]) / 1048576, total / 1048576  # GiB
+
+
+def read_uptime() -> float:
+    with open("/proc/uptime") as f:
+        return float(f.read().split()[0])
+
+
+def read_gpu() -> tuple[float, str] | None:
+    """(процент, пояснение) или None, если GPU не определился."""
+    # NVIDIA
+    if shutil.which("nvidia-smi"):
+        try:
+            out = run(["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
+                       "--format=csv,noheader,nounits"], timeout=5).stdout.splitlines()[0]
+            util, used, total = (float(x) for x in out.split(","))
+            return util, f"{used / 1024:.1f}/{total / 1024:.1f} GB"
+        except Exception:
+            pass
+    # AMD
+    for p in glob.glob("/sys/class/drm/card*/device/gpu_busy_percent"):
+        try:
+            return float(Path(p).read_text()), ""
+        except (OSError, ValueError):
+            pass
+    # Intel: реальной загрузки без root нет, поэтому берём текущую частоту GPU
+    for card in sorted(glob.glob("/sys/class/drm/card[0-9]")):
+        candidates = [(f"{card}/gt_act_freq_mhz", f"{card}/gt_max_freq_mhz")]  # i915
+        candidates += [(f"{g}/act_freq", f"{g}/max_freq")  # xe
+                       for g in glob.glob(f"{card}/device/tile*/gt*/freq0")]
+        for act_p, max_p in candidates:
+            try:
+                act, mx = int(Path(act_p).read_text()), int(Path(max_p).read_text())
+                if mx > 0:
+                    return 100 * act / mx, f"{act}/{mx} MHz"
+            except (OSError, ValueError):
+                pass
+    return None
+
+
+def bar(pct: float, width: int = 10) -> str:
+    filled = max(0, min(width, round(pct / 100 * width)))
+    return "▰" * filled + "▱" * (width - filled)
+
+
+def render_system() -> str:
+    try:
+        rows = []
+        if cpu_pct is None:
+            rows.append("CPU    collecting…")
+        else:
+            rows.append(f"CPU    {bar(cpu_pct)} {cpu_pct:.0f}%")
+
+        used, total = read_ram()
+        rows.append(f"RAM    {bar(used / total * 100)} {used / total * 100:.0f}%  {used:.1f}/{total:.1f} GB")
+
+        gpu = read_gpu()
+        if gpu:
+            pct, extra = gpu
+            rows.append(f"GPU    {bar(pct)} " + (extra if extra and "MHz" in extra else f"{pct:.0f}%  {extra}".strip()))
+
+        rows.append(f"Uptime {fmt_dur(read_uptime())}")
+        return "<pre>" + "\n".join(rows) + "</pre>"
+    except Exception:
+        logging.exception("system stats failed")
+        return ""
+
+
 # ---------- экраны ----------
 def render_main():
     infos = [get_info(s) for s in SERVICES]
     up = sum(i["state"] == "active" for i in infos)
-    if up in range(0, 2):
-        text = (f"<b>Services</b> — {up} from {len(SERVICES)} is up\n\n"
-                + "\n".join(line(s, i) for s, i in zip(SERVICES, infos))
-                + f"\n\n<i>last update at {now_str()}</i>")
-    else:
-        text = (f"<b>Services</b> — {up} from {len(SERVICES)} are up\n\n"
-                + "\n".join(line(s, i) for s, i in zip(SERVICES, infos))
-                + f"\n\n<i>last update at {now_str()}</i>")
+    verb = "is" if up < 2 else "are"
+    text = (f"<b>Services</b> — {up} from {len(SERVICES)} {verb} up\n\n"
+            + "\n".join(line(s, i) for s, i in zip(SERVICES, infos))
+            + f"\n\n{render_system()}"
+            + f"\n<i>last update at {now_str()}</i>")
 
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(*[btn(f"{ICONS.get(i['state'], '❔')} {s}", f"s:{n}")
@@ -287,6 +386,7 @@ def on_button(c):
 # ---------- мониторинг ----------
 def monitor():
     last: dict[str, dict] = {}
+    last_refresh = 0.0
     while True:
         changed = False
         for svc in SERVICES:
@@ -302,8 +402,8 @@ def monitor():
                              f"{cur['state']}\n"
                              f"<i>previous : {prev['state']}</i>")
                 elif cur["state"] == "active" and cur["enter"] != prev["enter"]:
-                    alert = (f"🔄 <b>{esc(svc)}</b> is restarted"
-                             f"(Restats: {esc(cur['restarts'])})")
+                    alert = (f"🔄 <b>{esc(svc)}</b> restarted "
+                             f"(restarts: {esc(cur['restarts'])})")
                 if alert:
                     changed = True
                     if time.time() > quiet_until.get(svc, 0):
@@ -311,9 +411,12 @@ def monitor():
             except Exception:
                 logging.exception("monitor error for %s", svc)
 
-        if changed and (current_view == "main" or current_view.startswith("s:")):
+        due = (PANEL_REFRESH > 0 and current_view == "main"
+               and time.time() - last_refresh >= PANEL_REFRESH)
+        if (changed and (current_view == "main" or current_view.startswith("s:"))) or due:
             try:
                 show(current_view)
+                last_refresh = time.time()
             except Exception:
                 logging.exception("panel refresh failed")
         time.sleep(INTERVAL)
@@ -322,7 +425,9 @@ def monitor():
 if __name__ == "__main__":
     if not SERVICES:
         raise SystemExit("SERVICES are empty: made an unit list in .env")
+    threading.Thread(target=cpu_sampler, daemon=True).start()
     threading.Thread(target=monitor, daemon=True).start()
+    time.sleep(0.8)  # дать cpu_sampler снять первый замер
     if state.get("panel"):
         show("main")
     else:
