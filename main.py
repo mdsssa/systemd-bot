@@ -93,12 +93,12 @@ def fmt_dur(sec: float) -> str:
     h, rem = divmod(rem, 3600)
     m, s = divmod(rem, 60)
     if d:
-        return f"{d}д {h}ч"
+        return f"{d}d {h}h"
     if h:
-        return f"{h}ч {m}м"
+        return f"{h}h {m}m"
     if m:
-        return f"{m}м {s}с"
-    return f"{s}с"
+        return f"{m}m {s}s"
+    return f"{s}s"
 
 
 def line(svc: str, info: dict) -> str:
@@ -123,11 +123,11 @@ def render_main():
     if up in range(0, 2):
         text = (f"<b>Services</b> — {up} from {len(SERVICES)} is up\n\n"
                 + "\n".join(line(s, i) for s, i in zip(SERVICES, infos))
-                + f"\n\n<i>обновлено в {now_str()}</i>")
+                + f"\n\n<i>last update at {now_str()}</i>")
     else:
         text = (f"<b>Services</b> — {up} from {len(SERVICES)} are up\n\n"
                 + "\n".join(line(s, i) for s, i in zip(SERVICES, infos))
-                + f"\n\n<i>обновлено в {now_str()}</i>")
+                + f"\n\n<i>last update at {now_str()}</i>")
 
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(*[btn(f"{ICONS.get(i['state'], '❔')} {s}", f"s:{n}")
@@ -156,7 +156,7 @@ def render_service(n: int, note: str = ""):
         lines.append(f"Restarts: {esc(info['restarts'])}")
 
         if st in ("active", "activating", "reloading"):
-            kb.row(btn("🔁 Restart", f"restart:{n}"), btn("⏹ Стоп", f"ask:{n}"))
+            kb.row(btn("🔁 Restart", f"restart:{n}"), btn("⏹️ Stop", f"ask:{n}"))
         else:
             kb.row(btn("▶️ Start", f"start:{n}"))
         kb.row(btn("📜 Logs", f"l:{n}"), btn("🔄 Update", f"s:{n}"))
