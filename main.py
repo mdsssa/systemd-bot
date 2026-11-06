@@ -33,7 +33,7 @@ bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
 ICONS = {"active": "🟢", "activating": "🟡", "reloading": "🟡", "deactivating": "🟡",
          "inactive": "⚪", "failed": "🔴"}
-STATE_RU = {"active": "работает", "inactive": "остановлен", "failed": "упал",
+STATE_RU = {"active": "active", "inactive": "остановлен", "failed": "упал",
             "activating": "запускается", "deactivating": "останавливается",
             "reloading": "перечитывает конфиг"}
 ACTIONS = {"start": "Запускаю…", "stop": "Останавливаю…", "restart": "Перезапускаю…"}
@@ -103,9 +103,9 @@ def fmt_dur(sec: float) -> str:
 
 def line(svc: str, info: dict) -> str:
     if info["load"] == "not-found":
-        return f"❓ <b>{esc(svc)}</b> · юнит не найден"
+        return f"❓ <b>{esc(svc)}</b> unit not found"
     st = info["state"]
-    return f"{ICONS.get(st, '❔')} <b>{esc(svc)}</b> · {STATE_RU.get(st, st)}"
+    return f"{ICONS.get(st, '❔')} <b>{esc(svc)}</b> · {st}"
 
 
 def now_str() -> str:
@@ -120,13 +120,19 @@ def btn(text: str, data: str) -> types.InlineKeyboardButton:
 def render_main():
     infos = [get_info(s) for s in SERVICES]
     up = sum(i["state"] == "active" for i in infos)
-    text = (f"🖥 <b>Сервисы</b> — {up} из {len(SERVICES)} работают\n\n"
-            + "\n".join(line(s, i) for s, i in zip(SERVICES, infos))
-            + f"\n\n<i>обновлено в {now_str()}</i>")
+    if up in range(0, 2):
+        text = (f"<b>Services</b> — {up} from {len(SERVICES)} is up\n\n"
+                + "\n".join(line(s, i) for s, i in zip(SERVICES, infos))
+                + f"\n\n<i>обновлено в {now_str()}</i>")
+    else:
+        text = (f"<b>Services</b> — {up} from {len(SERVICES)} are up\n\n"
+                + "\n".join(line(s, i) for s, i in zip(SERVICES, infos))
+                + f"\n\n<i>обновлено в {now_str()}</i>")
+
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(*[btn(f"{ICONS.get(i['state'], '❔')} {s}", f"s:{n}")
              for n, (s, i) in enumerate(zip(SERVICES, infos))])
-    kb.row(btn("🔄 Обновить", "main"))
+    kb.row(btn("🔄 Reload", "main"))
     return text, kb
 
 
@@ -138,35 +144,35 @@ def render_service(n: int, note: str = ""):
 
     if info["load"] != "not-found":
         st = info["state"]
-        lines.append(f"Статус: {STATE_RU.get(st, st)} ({esc(info['sub'])})")
+        lines.append(f"State: {st} ({esc(info['sub'])})")
         if st == "active":
             since = int(info["enter"])
-            label = "Аптайм"
+            label = "Uptime"
         else:
             since = int(info["inactive_enter"])
-            label = "Не работает"
+            label = "Isn't running"
         if since > 0:
             lines.append(f"{label}: {fmt_dur(time.monotonic() - since / 1e6)}")
-        lines.append(f"Рестартов: {esc(info['restarts'])}")
+        lines.append(f"Restarts: {esc(info['restarts'])}")
 
         if st in ("active", "activating", "reloading"):
-            kb.row(btn("🔁 Перезапуск", f"restart:{n}"), btn("⏹ Стоп", f"ask:{n}"))
+            kb.row(btn("🔁 Restart", f"restart:{n}"), btn("⏹ Стоп", f"ask:{n}"))
         else:
-            kb.row(btn("▶️ Запустить", f"start:{n}"))
-        kb.row(btn("📜 Логи", f"l:{n}"), btn("🔄 Обновить", f"s:{n}"))
-    kb.row(btn("⬅️ Назад", "main"))
+            kb.row(btn("▶️ Start", f"start:{n}"))
+        kb.row(btn("📜 Logs", f"l:{n}"), btn("🔄 Update", f"s:{n}"))
+    kb.row(btn("⬅️ Back", "main"))
 
     text = "\n".join(lines)
     if note:
         text += f"\n\n{note}"
-    text += f"\n\n<i>обновлено в {now_str()}</i>"
+    text += f"\n\n<i>Last update at {now_str()}</i>"
     return text, kb
 
 
 def render_ask_stop(n: int):
     kb = types.InlineKeyboardMarkup()
-    kb.row(btn("✅ Да, остановить", f"stop:{n}"), btn("✖️ Отмена", f"s:{n}"))
-    return f"⏹ Остановить <b>{esc(SERVICES[n])}</b>?", kb
+    kb.row(btn("✅ Stop", f"stop:{n}"), btn("✖️ Do not", f"s:{n}"))
+    return f"⏹ Stop <b>{esc(SERVICES[n])}</b>?", kb
 
 
 def render_logs(n: int):
@@ -176,10 +182,10 @@ def render_logs(n: int):
     if out:
         body = "\n".join(l[:160] for l in out.splitlines())[-3000:]
     else:
-        body = "журнал пуст (или нет доступа к journal)"
-    text = f"📜 <b>{esc(svc)}</b>\n<pre>{esc(body)}</pre>\n<i>обновлено в {now_str()}</i>"
+        body = "Logs are empty"
+    text = f"📜 <b>{esc(svc)}</b>\n<pre>{esc(body)}</pre>\n<i>last update at {now_str()}</i>"
     kb = types.InlineKeyboardMarkup()
-    kb.row(btn("🔄 Обновить", f"l:{n}"), btn("⬅️ К сервису", f"s:{n}"))
+    kb.row(btn("🔄 Update", f"l:{n}"), btn("⬅️ Back to service", f"s:{n}"))
     return text, kb
 
 
@@ -293,11 +299,11 @@ def monitor():
                 alert = None
                 if cur["state"] != prev["state"]:
                     alert = (f"{ICONS.get(cur['state'], '❔')} <b>{esc(svc)}</b>: "
-                             f"{STATE_RU.get(cur['state'], cur['state'])}\n"
-                             f"<i>было: {STATE_RU.get(prev['state'], prev['state'])}</i>")
+                             f"{cur['state']}\n"
+                             f"<i>previous : {prev['state']}</i>")
                 elif cur["state"] == "active" and cur["enter"] != prev["enter"]:
-                    alert = (f"🔄 <b>{esc(svc)}</b> перезапустился "
-                             f"(рестартов: {esc(cur['restarts'])})")
+                    alert = (f"🔄 <b>{esc(svc)}</b> is restarted"
+                             f"(Restats: {esc(cur['restarts'])})")
                 if alert:
                     changed = True
                     if time.time() > quiet_until.get(svc, 0):
@@ -315,7 +321,7 @@ def monitor():
 
 if __name__ == "__main__":
     if not SERVICES:
-        raise SystemExit("SERVICES пуст: укажи список юнитов в .env")
+        raise SystemExit("SERVICES are empty: made an unit list in .env")
     threading.Thread(target=monitor, daemon=True).start()
     if state.get("panel"):
         show("main")
