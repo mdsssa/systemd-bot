@@ -274,7 +274,7 @@ def on_button(c):
     cmd, _, arg = c.data.partition(":")
     if cmd in ACTIONS and arg.isdigit() and int(arg) < len(SERVICES):
         n = int(arg)
-        bot.answer_callback_query(c.id, ACTIONS[cmd])
+        bot.answer_callback_query(c.id, cmd)
         quiet_until[SERVICES[n]] = time.time() + INTERVAL + 5
         ok, msg = systemctl_action(cmd, SERVICES[n])
         time.sleep(1.5)
