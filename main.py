@@ -49,11 +49,9 @@ def get_info(svc: str) -> dict:
     }
 
 
+
 def systemctl_action(action: str, svc: str) -> str:
-    cmd = ["systemctl", action, svc]
-    if USE_SUDO:
-        cmd = ["sudo", "-n"] + cmd
-    r = run(cmd, timeout=60)
+    r = run(["systemctl", "--user", action, svc], timeout=60)
     return (r.stderr or r.stdout).strip() or "ok"
 
 
@@ -94,7 +92,9 @@ def handle_action(action: str, svc: str) -> str:
     if svc not in SERVICES:
         return "Такого сервиса нет в списке."
     if action == "logs":
-        out = run(["journalctl", "-u", svc, "-n", "30", "--no-pager", "-o", "short"]).stdout
+        out = run(["systemctl", "--user", "show", svc,
+                   "-p", "ActiveState", "-p", "SubState",
+                   "-p", "ActiveEnterTimestampMonotonic", "-p", "NRestarts"]).stdout
         return f"<b>{html.escape(svc)}</b>\n<pre>{html.escape(out[-3500:])}</pre>"
     real = "start" if action == "startsvc" else action
     res = systemctl_action(real, svc)
